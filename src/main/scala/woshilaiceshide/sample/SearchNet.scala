@@ -115,19 +115,19 @@ class SearchNet(db_name: String) {
   }
 
   def get_all_hiddenids(wordids: Seq[Int], urlids: Seq[Int]) = {
-    val l0 = wordids.map { wordid =>
+    val l0 = wordids.flatMap { wordid =>
       db.withConnection { implicit c =>
-        SQL(s"""select toid from wordhidden where fromid = {fromid}""").on('fromid -> wordid).as(int("toid").singleOpt)
+        SQL(s"""select toid from wordhidden where fromid = {fromid}""").on('fromid -> wordid).as(int("toid").*)
       }
     }
 
-    val l1 = urlids.map { urlid =>
+    val l1 = urlids.flatMap { urlid =>
       db.withConnection { implicit c =>
-        SQL(s"""select fromid from hiddenurl where toid = {toid}""").on('toid -> urlid).as(int("fromid").singleOpt)
+        SQL(s"""select fromid from hiddenurl where toid = {toid}""").on('toid -> urlid).as(int("fromid").*)
       }
     }
 
-    (l0 ++ l1).filter { _ != None }.map { _.get }.distinct
+    (l0 ++ l1).distinct
   }
 
   final class Trained(val wordids: Seq[Int], hiddenids: Seq[Int], val urlids: Seq[Int], wo: Seq[Seq[Double]], wi: Seq[Seq[Double]]) {

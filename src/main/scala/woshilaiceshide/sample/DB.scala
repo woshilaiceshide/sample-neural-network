@@ -36,6 +36,7 @@ class DB(pool: { def getConnection(): Connection; def shutdown(): Unit }) {
         throw e
       case e: Throwable =>
         c.rollback()
+        e.printStackTrace()
         throw e
 
     } finally {
