@@ -4,6 +4,8 @@ import anorm._
 import anorm.SqlParser._
 import anorm.SqlQuery._
 
+import java.sql.Connection
+
 object SearchNet {
   final case class Link(fromid: Int, toid: Int, strength: Double)
   object Link {
@@ -11,6 +13,10 @@ object SearchNet {
       case fromid ~ toid ~ strength => Link(fromid, toid, strength)
     }
   }
+
+  def dtanh(x: Double) = 1.0d - x * x
+
+  implicit class Range(val x: Int) extends AnyVal { def range = 0 until x }
 }
 
 class SearchNet(db_name: String) {
@@ -66,49 +72,43 @@ class SearchNet(db_name: String) {
 
   }
 
-  def set_strength(fromid: Int, toid: Int, layer: String, strength: Double) = {
-    val existed = db.withConnection { implicit c =>
-      SQL(s"""select rowid from ${layer} where fromid = {fromid} and toid = {toid}""")
-        .on('fromid -> fromid, 'toid -> toid)
-        .as(str("rowid").singleOpt)
-    }
+  def set_strength(fromid: Int, toid: Int, layer: String, strength: Double)(implicit c: Connection) = {
+    val existed = SQL(s"""select rowid from ${layer} where fromid = {fromid} and toid = {toid}""")
+      .on('fromid -> fromid, 'toid -> toid)
+      .as(int("rowid").singleOpt)
+
     existed match {
       case None =>
-        db.withConnection { implicit c =>
-          SQL(s"""insert into ${layer}(fromid, toid, strength)values({fromid}, {toid}, {strength})""")
-            .on('fromid -> fromid, 'toid -> toid, 'strength -> strength)
-            .executeInsert()
-        }
+        SQL(s"""insert into ${layer}(fromid, toid, strength)values({fromid}, {toid}, {strength})""")
+          .on('fromid -> fromid, 'toid -> toid, 'strength -> strength)
+          .executeInsert()
       case Some(rowid) =>
-        db.withConnection { implicit c =>
-          SQL(s"""update ${layer} set strength = {strength} where rowid = {rowid}""")
-            .on('strength -> strength, 'rowid -> rowid)
-            .executeUpdate()
-        }
+        SQL(s"""update ${layer} set strength = {strength} where rowid = {rowid}""")
+          .on('strength -> strength, 'rowid -> rowid)
+          .executeUpdate()
     }
   }
 
   def generate_hiddennode(wordids: Seq[Int], urls: Seq[Int]) = {
     require(wordids.size <= 3)
     val create_key = wordids.sorted.mkString("_")
-    val existed = db.withConnection { implicit c =>
-      SQL(s"""select rowid from hiddennode where create_key = {create_key}""")
+    db.withConnection { implicit c =>
+      val existed = SQL(s"""select rowid from hiddennode where create_key = {create_key}""")
         .on('create_key -> create_key)
         .as(int("rowid").singleOpt)
-    }
-    if (existed.isEmpty) {
-      val hiddenid = db.withConnection { implicit c =>
-        SQL(s"""insert into hiddennode(create_key)values({create_key})""")
+
+      if (existed.isEmpty) {
+        val hiddenid = SQL(s"""insert into hiddennode(create_key)values({create_key})""")
           .on('create_key -> create_key)
           .executeInsert(SqlParser.scalar[Int].singleOpt)
-      }
 
-      hiddenid.map { id =>
-        for (wordid <- wordids) {
-          set_strength(wordid, id, "wordhidden", 1.0 / wordids.size)
-        }
-        for (urlid <- urls) {
-          set_strength(id, urlid, "hiddenurl", 0.1)
+        hiddenid.map { id =>
+          for (wordid <- wordids) {
+            set_strength(wordid, id, "wordhidden", 1.0 / wordids.size)
+          }
+          for (urlid <- urls) {
+            set_strength(id, urlid, "hiddenurl", 0.1)
+          }
         }
       }
     }
@@ -130,13 +130,24 @@ class SearchNet(db_name: String) {
     (l0 ++ l1).filter { _ != None }.map { _.get }.distinct
   }
 
-  class Relavant(val wordids: Seq[Int], val urlids: Seq[Int]) {
+  final class Trained(val wordids: Seq[Int], hiddenids: Seq[Int], val urlids: Seq[Int], wo: Seq[Seq[Double]], wi: Seq[Seq[Double]]) {
+    def update_database() = db.withTransaction { implicit c =>
+      wordids.size.range.map { i =>
+        hiddenids.size.range.map { j =>
+          set_strength(wordids(i), hiddenids(j), "wordhidden", wi(i)(j))
+        }
+      }
+      hiddenids.size.range.map { i =>
+        urlids.size.range.map { j =>
+          set_strength(hiddenids(i), urlids(j), "hiddenurl", wo(i)(j))
+        }
+      }
+    }
+  }
+
+  final class Relavant(val wordids: Seq[Int], val urlids: Seq[Int]) {
 
     val hiddenids = get_all_hiddenids(wordids, urlids)
-
-    //val ai = Seq.fill(wordids.size)(1.0)
-    //val ah = Seq.fill(hiddenids.size)(1.0)
-    //val ao = Seq.fill(urlids.size)(1.0)
 
     val wi = wordids.map { wordid =>
       hiddenids.map { hiddenid =>
@@ -150,26 +161,51 @@ class SearchNet(db_name: String) {
       }
     }
 
-    def feed_forward() = {
-      val ai = Seq.fill(wordids.size)(1.0)
-
-      val ah = (0 until hiddenids.size).map { i =>
-        val tmp = (0 until wordids.size).map { j =>
-          ai(j) * wi(j)(i)
-        }.sum
-        java.lang.Math.tanh(tmp)
-      }
-
-      val ao = (0 until urlids.size).map { i =>
-        val tmp = (0 until hiddenids.size).map { j =>
-          ah(j) * wo(j)(i)
-        }.sum
-        java.lang.Math.tanh(tmp)
-      }
-
-      ao
+    val ai = Seq.fill(wordids.size)(1.0)
+    val ah = hiddenids.size.range.map { i =>
+      val tmp = wordids.size.range.map { j =>
+        ai(j) * wi(j)(i)
+      }.sum
+      java.lang.Math.tanh(tmp)
+    }
+    val ao = urlids.size.range.map { i =>
+      val tmp = hiddenids.size.range.map { j =>
+        ah(j) * wo(j)(i)
+      }.sum
+      java.lang.Math.tanh(tmp)
     }
 
+    def feed_forward() = ao
+
+    def backpropagation(targets: Seq[Double], N: Double = 0.5d) = {
+      val output_deltas = urlids.size.range.map { i =>
+        val error = targets(i) - ao(i)
+        dtanh(ao(i)) * error
+      }
+
+      val hidden_deltas = hiddenids.size.range.map { i =>
+        val error = urlids.size.range.map { j =>
+          output_deltas(j) * wo(i)(j)
+        }.sum
+        dtanh(ah(i)) * error
+      }
+
+      val wo1 = hiddenids.size.range.map { i =>
+        urlids.size.range.map { j =>
+          val change = output_deltas(j) * ah(i)
+          wo(i)(j) + N * change
+        }
+      }
+
+      val wi1 = wordids.size.range.map { i =>
+        hiddenids.size.range.map { j =>
+          val change = hidden_deltas(j) * ai(i)
+          wi(i)(j) + N * change
+        }
+      }
+
+      new Trained(wordids, hiddenids, urlids, wo1, wi1)
+    }
   }
 
   private def setup_network(wordids: Seq[Int], urlids: Seq[Int]) = {
@@ -178,6 +214,18 @@ class SearchNet(db_name: String) {
 
   def get_result(wordids: Seq[Int], urlids: Seq[Int]) = {
     setup_network(wordids, urlids).feed_forward()
+  }
+
+  def train_query(wordids: Seq[Int], urlids: Seq[Int], selected_url: Int) = {
+    generate_hiddennode(wordids, urlids)
+    val relavant = setup_network(wordids, urlids)
+    relavant.feed_forward()
+    val targets = urlids.map {
+      case x if x == selected_url => 1.0d
+      case _ => 0.0d
+    }
+    val trained = relavant.backpropagation(targets)
+    trained.update_database()
   }
 
 }

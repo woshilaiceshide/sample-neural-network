@@ -19,9 +19,15 @@ object Runner extends App {
   println(s"hiddenurl: ")
   mynet.show_hiddenurl()
 
-  println(s"feeding...")
-  val result = mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth))
-  println(result)
+  println(s"before train ...")
+  val result0 = mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth))
+  println(result0)
+
+  mynet.train_query(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth), uWorldBank)
+
+  println(s"after train ...")
+  val result1 = mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth))
+  println(result1)
 
   mynet.shutdown()
 
