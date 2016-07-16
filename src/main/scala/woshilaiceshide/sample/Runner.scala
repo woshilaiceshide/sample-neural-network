@@ -21,14 +21,15 @@ object Runner extends App {
   println(s"hiddenurl: ")
   println(mynet.get_all_hiddenurl().mkString(System.lineSeparator()))
 
-  println(s"before train ...")
+  println(s"before train #1...")
   println(mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth)))
 
   mynet.train_query(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth), uWorldBank)
 
-  println(s"after train ...")
+  println(s"after train #1...")
   println(mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth)))
 
+  println(s"train using some data 30 times...")
   val allurls = Seq(uWorldBank, uRiver, uEarth)
   30.range.map { i =>
     mynet.train_query(Seq(wWorld, wBank), allurls, uWorldBank)
@@ -36,6 +37,7 @@ object Runner extends App {
     mynet.train_query(Seq(wWorld), allurls, uEarth)
   }
 
+  println(s"""after train 30 times""")
   println(mynet.get_result(Seq(wWorld, wBank), allurls))
   //(0.861, 0.011, 0.016)
 
