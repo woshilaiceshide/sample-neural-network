@@ -53,7 +53,7 @@ class SearchNet(db_name: String) {
   }
 
   //layer: wordhidden or hiddenurl
-  def get_strength(fromid: String, toid: String, layer: String) = {
+  def get_strength(fromid: Int, toid: Int, layer: String) = {
     val existed = db.withConnection { implicit c =>
       SQL(s"""select strength from ${layer} where fromid = {fromid} and toid = {toid}""")
         .on('fromid -> fromid, 'toid -> toid)
@@ -66,7 +66,7 @@ class SearchNet(db_name: String) {
 
   }
 
-  def set_strength(fromid: Long, toid: Long, layer: String, strength: Double) = {
+  def set_strength(fromid: Int, toid: Int, layer: String, strength: Double) = {
     val existed = db.withConnection { implicit c =>
       SQL(s"""select rowid from ${layer} where fromid = {fromid} and toid = {toid}""")
         .on('fromid -> fromid, 'toid -> toid)
@@ -88,7 +88,7 @@ class SearchNet(db_name: String) {
     }
   }
 
-  def generate_hiddennode(wordids: Seq[Long], urls: Seq[Long]) = {
+  def generate_hiddennode(wordids: Seq[Int], urls: Seq[Int]) = {
     require(wordids.size <= 3)
     val create_key = wordids.sorted.mkString("_")
     val existed = db.withConnection { implicit c =>
@@ -100,7 +100,7 @@ class SearchNet(db_name: String) {
       val hiddenid = db.withConnection { implicit c =>
         SQL(s"""insert into hiddennode(create_key)values({create_key})""")
           .on('create_key -> create_key)
-          .executeInsert()
+          .executeInsert(SqlParser.scalar[Int].singleOpt)
       }
 
       hiddenid.map { id =>
@@ -112,6 +112,72 @@ class SearchNet(db_name: String) {
         }
       }
     }
+  }
+
+  def get_all_hiddenids(wordids: Seq[Int], urlids: Seq[Int]) = {
+    val l0 = wordids.map { wordid =>
+      db.withConnection { implicit c =>
+        SQL(s"""select toid from wordhidden where fromid = {fromid}""").on('fromid -> wordid).as(int("toid").singleOpt)
+      }
+    }
+
+    val l1 = urlids.map { urlid =>
+      db.withConnection { implicit c =>
+        SQL(s"""select fromid from hiddenurl where toid = {toid}""").on('toid -> urlid).as(int("fromid").singleOpt)
+      }
+    }
+
+    (l0 ++ l1).filter { _ != None }.map { _.get }.distinct
+  }
+
+  class Relavant(val wordids: Seq[Int], val urlids: Seq[Int]) {
+
+    val hiddenids = get_all_hiddenids(wordids, urlids)
+
+    //val ai = Seq.fill(wordids.size)(1.0)
+    //val ah = Seq.fill(hiddenids.size)(1.0)
+    //val ao = Seq.fill(urlids.size)(1.0)
+
+    val wi = wordids.map { wordid =>
+      hiddenids.map { hiddenid =>
+        get_strength(wordid, hiddenid, "wordhidden")
+      }
+    }
+
+    val wo = hiddenids.map { hiddenid =>
+      urlids.map { urlid =>
+        get_strength(hiddenid, urlid, "hiddenurl")
+      }
+    }
+
+    def feed_forward() = {
+      val ai = Seq.fill(wordids.size)(1.0)
+
+      val ah = (0 until hiddenids.size).map { i =>
+        val tmp = (0 until wordids.size).map { j =>
+          ai(j) * wi(j)(i)
+        }.sum
+        java.lang.Math.tanh(tmp)
+      }
+
+      val ao = (0 until urlids.size).map { i =>
+        val tmp = (0 until hiddenids.size).map { j =>
+          ah(j) * wo(j)(i)
+        }.sum
+        java.lang.Math.tanh(tmp)
+      }
+
+      ao
+    }
+
+  }
+
+  private def setup_network(wordids: Seq[Int], urlids: Seq[Int]) = {
+    new Relavant(wordids, urlids)
+  }
+
+  def get_result(wordids: Seq[Int], urlids: Seq[Int]) = {
+    setup_network(wordids, urlids).feed_forward()
   }
 
 }

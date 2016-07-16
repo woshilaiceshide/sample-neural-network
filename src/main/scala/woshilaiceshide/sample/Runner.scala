@@ -19,6 +19,10 @@ object Runner extends App {
   println(s"hiddenurl: ")
   mynet.show_hiddenurl()
 
+  println(s"feeding...")
+  val result = mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth))
+  println(result)
+
   mynet.shutdown()
 
 }
