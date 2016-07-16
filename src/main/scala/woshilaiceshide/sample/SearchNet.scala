@@ -72,7 +72,7 @@ class SearchNet(db_name: String) {
   def generate_hiddennode(wordids: Seq[Int], urls: Seq[Int]) = {
     require(wordids.size <= 3)
     val create_key = wordids.sorted.mkString("_")
-    db.withConnection { implicit c =>
+    db.withTransaction { implicit c =>
       val existed = SQL(s"""select rowid from hiddennode where create_key = {create_key}""")
         .on('create_key -> create_key)
         .as(int("rowid").singleOpt)
@@ -83,8 +83,8 @@ class SearchNet(db_name: String) {
           .executeInsert(SqlParser.scalar[Int].singleOpt)
 
         hiddenid.map { id =>
-          for (wordid <- wordids) set_strength(wordid, id, "wordhidden", 1.0 / wordids.size)
-          for (urlid <- urls) set_strength(id, urlid, "hiddenurl", 0.1)
+          for (wordid <- wordids) set_strength(wordid, id, "wordhidden", 1.0d / wordids.size)
+          for (urlid <- urls) set_strength(id, urlid, "hiddenurl", 0.1d)
         }
       }
     }
@@ -117,7 +117,7 @@ class SearchNet(db_name: String) {
     }
   }
 
-  final class Relavant(val wordids: Seq[Int], val urlids: Seq[Int]) {
+  final class Relevant(val wordids: Seq[Int], val urlids: Seq[Int]) {
 
     val hiddenids = get_all_hiddenids(wordids, urlids)
 
@@ -180,19 +180,19 @@ class SearchNet(db_name: String) {
     }
   }
 
-  private def setup_network(wordids: Seq[Int], urlids: Seq[Int]) = new Relavant(wordids, urlids)
+  private def setup_network(wordids: Seq[Int], urlids: Seq[Int]) = new Relevant(wordids, urlids)
 
   def get_result(wordids: Seq[Int], urlids: Seq[Int]) = setup_network(wordids, urlids).feed_forward()
 
   def train_query(wordids: Seq[Int], urlids: Seq[Int], selected_url: Int) = {
     generate_hiddennode(wordids, urlids)
-    val relavant = setup_network(wordids, urlids)
-    relavant.feed_forward()
+    val relevant = setup_network(wordids, urlids)
+    relevant.feed_forward()
     val targets = urlids.map {
       case x if x == selected_url => 1.0d
       case _ => 0.0d
     }
-    val trained = relavant.backpropagation(targets)
+    val trained = relevant.backpropagation(targets)
     trained.update_database()
   }
 
