@@ -12,14 +12,14 @@ object Runner extends App {
   val (uWorldBank, uRiver, uEarth) = (201, 202, 203)
   mynet.generate_hiddennode(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth))
 
-  println(s"hiddennode: ")
-  mynet.show_hiddennode()
-
   println(s"wordhidden: ")
-  mynet.show_wordhidden()
+  println(mynet.get_all_wordhidden().map { _.toString }.mkString(System.lineSeparator()))
+
+  println(s"hiddennode: ")
+  println(mynet.get_all_hiddennode().map { _.toString }.mkString(System.lineSeparator()))
 
   println(s"hiddenurl: ")
-  mynet.show_hiddenurl()
+  println(mynet.get_all_hiddenurl().mkString(System.lineSeparator()))
 
   println(s"before train ...")
   println(mynet.get_result(Seq(wWorld, wBank), Seq(uWorldBank, uRiver, uEarth)))

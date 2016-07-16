@@ -2,7 +2,6 @@ package woshilaiceshide.sample
 
 import anorm._
 import anorm.SqlParser._
-import anorm.SqlQuery._
 
 import java.sql.Connection
 
@@ -13,41 +12,26 @@ object SearchNet {
       case fromid ~ toid ~ strength => Link(fromid, toid, strength)
     }
   }
-
   def dtanh(x: Double) = 1.0d - x * x
-
   implicit class Range(val x: Int) extends AnyVal { def range = 0 until x }
 }
 
 class SearchNet(db_name: String) {
-
   import SearchNet._
-
   val db = DB.newHikari("org.sqlite.JDBC", s"jdbc:sqlite:${db_name}")
-
   def shutdown() = db.shutdown()
-
   private def show: RowParser[Unit] = null
 
-  def show_wordhidden() = {
-    val links = db.withConnection { implicit c =>
-      SQL("""select * from wordhidden""").as(Link.model.*)
-    }
-    links.map { println(_) }
+  def get_all_wordhidden() = db.withConnection { implicit c =>
+    SQL("""select * from wordhidden""").as(Link.model.*)
   }
 
-  def show_hiddenurl() = {
-    val links = db.withConnection { implicit c =>
-      SQL("""select * from hiddenurl""").as(Link.model.*)
-    }
-    links.map { println(_) }
+  def get_all_hiddenurl() = db.withConnection { implicit c =>
+    SQL("""select * from hiddenurl""").as(Link.model.*)
   }
 
-  def show_hiddennode() = {
-    val nodes = db.withConnection { implicit c =>
-      SQL("""select * from hiddennode""").as(str("create_key").*)
-    }
-    nodes.map { println(_) }
+  def get_all_hiddennode() = db.withConnection { implicit c =>
+    SQL("""select * from hiddennode""").as(str("create_key").*)
   }
 
   def make_tables() = {
@@ -65,11 +49,7 @@ class SearchNet(db_name: String) {
         .on('fromid -> fromid, 'toid -> toid)
         .as(double("strength").singleOpt)
     }
-    existed match {
-      case None => if (layer == "wordhidden") -0.2 else /*hiddenurl*/ 0
-      case Some(x) => x
-    }
-
+    existed.getOrElse(if (layer == "wordhidden") -0.2 else /*hiddenurl*/ 0)
   }
 
   def set_strength(fromid: Int, toid: Int, layer: String, strength: Double)(implicit c: Connection) = {
@@ -103,12 +83,8 @@ class SearchNet(db_name: String) {
           .executeInsert(SqlParser.scalar[Int].singleOpt)
 
         hiddenid.map { id =>
-          for (wordid <- wordids) {
-            set_strength(wordid, id, "wordhidden", 1.0 / wordids.size)
-          }
-          for (urlid <- urls) {
-            set_strength(id, urlid, "hiddenurl", 0.1)
-          }
+          for (wordid <- wordids) set_strength(wordid, id, "wordhidden", 1.0 / wordids.size)
+          for (urlid <- urls) set_strength(id, urlid, "hiddenurl", 0.1)
         }
       }
     }
@@ -133,14 +109,10 @@ class SearchNet(db_name: String) {
   final class Trained(val wordids: Seq[Int], hiddenids: Seq[Int], val urlids: Seq[Int], wo: Seq[Seq[Double]], wi: Seq[Seq[Double]]) {
     def update_database() = db.withTransaction { implicit c =>
       wordids.size.range.map { i =>
-        hiddenids.size.range.map { j =>
-          set_strength(wordids(i), hiddenids(j), "wordhidden", wi(i)(j))
-        }
+        hiddenids.size.range.map { j => set_strength(wordids(i), hiddenids(j), "wordhidden", wi(i)(j)) }
       }
       hiddenids.size.range.map { i =>
-        urlids.size.range.map { j =>
-          set_strength(hiddenids(i), urlids(j), "hiddenurl", wo(i)(j))
-        }
+        urlids.size.range.map { j => set_strength(hiddenids(i), urlids(j), "hiddenurl", wo(i)(j)) }
       }
     }
   }
@@ -208,13 +180,9 @@ class SearchNet(db_name: String) {
     }
   }
 
-  private def setup_network(wordids: Seq[Int], urlids: Seq[Int]) = {
-    new Relavant(wordids, urlids)
-  }
+  private def setup_network(wordids: Seq[Int], urlids: Seq[Int]) = new Relavant(wordids, urlids)
 
-  def get_result(wordids: Seq[Int], urlids: Seq[Int]) = {
-    setup_network(wordids, urlids).feed_forward()
-  }
+  def get_result(wordids: Seq[Int], urlids: Seq[Int]) = setup_network(wordids, urlids).feed_forward()
 
   def train_query(wordids: Seq[Int], urlids: Seq[Int], selected_url: Int) = {
     generate_hiddennode(wordids, urlids)
