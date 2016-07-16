@@ -11,7 +11,7 @@ object SqliteTest extends App {
 
   final case class Person(id: Int, name: String)
 
-  val db = DB("org.sqlite.JDBC", "jdbc:sqlite:test.db")
+  val db = DB.newHikari("org.sqlite.JDBC", "jdbc:sqlite:test.db")
 
   object Person {
     val model = int("id") ~ str("name") map {

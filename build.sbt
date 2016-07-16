@@ -40,6 +40,10 @@ libraryDependencies += "org.xerial" % "sqlite-jdbc" % "3.8.11.2"
 
 libraryDependencies += "com.zaxxer" % "HikariCP" % "2.4.7"
 
+libraryDependencies += "com.jolbox" % "bonecp" % "0.8.0.RELEASE"
+
+//libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.7"
+
 retrieveManaged := false
 
 enablePlugins(JavaAppPackaging)

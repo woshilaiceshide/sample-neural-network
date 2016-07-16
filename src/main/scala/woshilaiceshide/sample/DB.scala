@@ -5,9 +5,11 @@ import java.sql.Connection
 import com.zaxxer.hikari._
 import com.zaxxer.hikari.pool._
 
+import com.jolbox.bonecp._
+
 import scala.util.control.ControlThrowable
 
-class DB(pool: HikariPool) {
+class DB(pool: { def getConnection(): Connection; def shutdown(): Unit }) {
 
   def withConnection[A](autocommit: Boolean = true)(f: Connection => A): A = {
     val c = pool.getConnection()
@@ -46,13 +48,32 @@ class DB(pool: HikariPool) {
 }
 object DB {
 
-  def apply(driver: String, jdbc_url: String, max_pool_size: Int = 1) = {
+  object Classifier extends scala.Enumeration {
+    val BONECP = Value
+    val HIKARI = Value
+
+  }
+
+  def newHikari(driver: String, jdbc_url: String, max_pool_size: Int = 1) = {
     Class.forName(driver)
 
     val config = new HikariConfig()
     config.setJdbcUrl(jdbc_url)
     config.setMaximumPoolSize(max_pool_size)
     val pool = new HikariPool(config)
+
+    new DB(pool)
+  }
+
+  def newBonecp(driver: String, jdbc_url: String, max_pool_size: Int = 1) = {
+    Class.forName(driver)
+
+    val config = new BoneCPConfig()
+    config.setJdbcUrl(jdbc_url)
+    config.setPartitionCount(1)
+    config.setMaxConnectionsPerPartition(1)
+    config.setLogStatementsEnabled(true)
+    val pool = new com.jolbox.bonecp.BoneCP(config)
 
     new DB(pool)
   }
